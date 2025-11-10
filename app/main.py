@@ -37,8 +37,7 @@ async def predict(request: Request):
 
         # Dự đoán bằng model tương ứng
         if event_type == "flow":
-            # result = predict_flow(full_log)
-            result = "flow"
+            result = predict_flow(full_log)
         elif event_type == "dns":
             result = predict_dns(full_log)
         else:

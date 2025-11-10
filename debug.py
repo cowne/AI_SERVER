@@ -15,7 +15,7 @@ sample_log_normal = {
         "type": "query",
         "id": 58015,
         "opcode": 0,
-        "rrname": "gchq.github.io",   # domain bình thường
+        "rrname": "www.vnexpress.vn",   # domain bình thường
         "rrtype": "A",
         "rcode": "NOERROR"
     }
