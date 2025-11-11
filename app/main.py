@@ -47,9 +47,10 @@ async def predict(request: Request):
         log["ai_score"] = result["final_score"]
         log["ai_label"] = result["ai_label"]
 
-        # Ghi log ra file JSON Lines
-        with open(RESULT_FILE, "a") as f:
-            f.write(json.dumps(log) + "\n")
+        # Ghi log ra file JSON Lines nếu như đó là malicious log
+        if result["ai_label"] == "malicious":
+            with open(RESULT_FILE, "a") as f:
+                f.write(json.dumps(log) + "\n")
 
         processed.append({
             "agent": log.get("agent", {}).get("name"),
