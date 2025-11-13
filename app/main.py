@@ -11,7 +11,7 @@ RESULT_FILE = "/var/log/ai_results.json"  # mỗi log một dòng JSON
 async def predict(request: Request):
     body = await request.json()
 
-    # Trường hợp: nhận 1 log hoặc 1 list log
+    # Nhận 1 log hoặc 1 list log
     if "_source" in body:
         logs = [body["_source"]]
     elif isinstance(body, list):
@@ -22,10 +22,11 @@ async def predict(request: Request):
     processed = []
 
     for log in logs:
+
         data = log.get("data", {})
         event_type = data.get("event_type")
 
-        # Lọc loại event
+        # Chỉ nhận flow hoặc dns
         if event_type not in ["flow", "dns"]:
             continue
 
@@ -33,25 +34,37 @@ async def predict(request: Request):
         full_log_str = log.get("full_log")
         if not full_log_str:
             continue
+
         full_log = json.loads(full_log_str)
 
         # Dự đoán bằng model tương ứng
         if event_type == "flow":
             result = predict_flow(full_log)
-        elif event_type == "dns":
-            result = predict_dns(full_log)
         else:
-            continue
+            result = predict_dns(full_log)
 
-        # Gắn thêm kết quả AI vào log gốc
+        # Gắn thêm AI result để trả về API
         log["ai_score"] = result["final_score"]
         log["ai_label"] = result["ai_label"]
 
-        # Ghi log ra file JSON Lines nếu như đó là malicious log
+        # Nếu malicious → chỉ ghi thông tin giản lược (clean)
         if result["ai_label"] == "malicious":
-            with open(RESULT_FILE, "a") as f:
-                f.write(json.dumps(log) + "\n")
 
+            minimal = {
+                "timestamp": full_log.get("timestamp"),
+                "src_ip": full_log.get("src_ip"),
+                "dest_ip": full_log.get("dest_ip"),
+                "flow_id": full_log.get("flow_id"),
+                "event_type": event_type,
+                "ai_score": result["final_score"],
+                "ai_label": result["ai_label"]
+            }
+
+            # Append JSON Lines
+            with open(RESULT_FILE, "a") as f:
+                f.write(json.dumps(minimal) + "\n")
+
+        # Thông tin trả về API
         processed.append({
             "agent": log.get("agent", {}).get("name"),
             "type": event_type,
