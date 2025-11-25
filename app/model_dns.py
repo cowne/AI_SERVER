@@ -58,7 +58,8 @@ def predict_dns(raw_features: dict):
         "threshold_lof": float(threshold_lof),
         "final_score": float(final_score),
         "threshold_used": float(threshold_used),
-        "ai_label": final_label
+        "ai_label": final_label,
+        "alert_type": "dns_tunneling"
     }
 
     return result_log
