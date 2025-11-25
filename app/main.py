@@ -82,6 +82,7 @@ async def predict(request: Request):
         if result.get("ai_label") == "malicious":
             minimal = {
                 "timestamp": core_data.get("timestamp"),
+                "app_name": "ai_ids",
                 "src_ip": core_data.get("src_ip"),
                 "dest_ip": core_data.get("dest_ip"),
                 "suri_flow_id": core_data.get("flow_id"),
