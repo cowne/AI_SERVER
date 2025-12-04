@@ -50,12 +50,10 @@ async def predict(request: Request):
         else:
             continue
 
-        # --- BƯỚC 2.5 (MỚI): LỌC BỎ IPV6 (Cách đơn giản) ---
+        # --- BƯỚC 2.5: LỌC BỎ IPV6 ---
         src_ip = core_data.get("src_ip")
         dest_ip = core_data.get("dest_ip")
 
-        # IPv6 luôn chứa dấu hai chấm (:), IPv4 thì không.
-        # Ta check luôn bằng string method cho nhanh, không cần try/except phức tạp.
         if src_ip and isinstance(src_ip, str) and ":" in src_ip:
             continue
             
@@ -77,28 +75,36 @@ async def predict(request: Request):
             print(f"Model prediction error: {e}")
             continue
 
-        # --- BƯỚC 4: GHI FILE KẾT QUẢ ---
-        if result.get("ai_label") == "malicious":
+        # --- BƯỚC 4: GHI FILE KẾT QUẢ (ĐÃ SỬA LOGIC LỌC ĐIỂM CAO) ---
+        ai_score = result.get("final_score", 0) # Lấy điểm ra biến riêng
+        ai_label = result.get("ai_label")
+
+        # LOGIC MỚI: Chỉ xử lý nếu là malicious VÀ điểm <= 2
+        # Điểm > 2 được coi là nhiễu hệ thống (System Noise) -> Bỏ qua
+        if ai_label == "malicious" and ai_score <= 2:
+            
             minimal = {
                 "timestamp": core_data.get("timestamp"),
                 "app_name": "ai_ids",
-                "src_ip": src_ip,   # Dùng biến đã get ở trên
-                "dest_ip": dest_ip, # Dùng biến đã get ở trên
+                "src_ip": src_ip,   
+                "dest_ip": dest_ip, 
                 "suri_flow_id": core_data.get("flow_id"),
                 "log_category": event_type,
-                "ai_score": result["final_score"],
-                "ai_label": result["ai_label"],
+                "ai_score": ai_score,
+                "ai_label": ai_label,
                 "alert_type": result.get("alert_type", "unknown"),
             }
             
             with open(RESULT_FILE, "a") as f:
                 f.write(json.dumps(minimal) + "\n")
 
+        # Thêm vào response trả về (để debug nếu cần)
         processed.append({
             "flow_id": core_data.get("flow_id"),
             "type": event_type,
-            "ai_label": result.get("ai_label"),
-            "ai_score": result.get("final_score"),
+            "ai_label": ai_label,
+            "ai_score": ai_score,
+            "status": "logged" if (ai_label == "malicious" and ai_score <= 2) else "skipped_high_score" if ai_score > 2 else "clean"
         })
 
     if not processed:
