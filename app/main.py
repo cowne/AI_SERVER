@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 import json
+# Đã bỏ import ipaddress theo yêu cầu
 from app.model_dns import predict_dns
 from app.model_flow import predict_flow
 
@@ -14,22 +15,18 @@ async def predict(request: Request):
     except Exception:
         return {"error": "Invalid JSON body"}
 
-    # --- BƯỚC 1: CHUẨN HÓA DỮ LIỆU ĐẦU VÀO (QUAN TRỌNG) ---
-    # Mục tiêu: Dù gửi kiểu gì, ta cũng moi ra được list các log sạch
-    
+    # --- BƯỚC 1: CHUẨN HÓA DỮ LIỆU ĐẦU VÀO ---
     logs_to_process = []
 
-    # Case 1: Gửi 1 log đơn lẻ (từ Script Forwarder Python)
+    # Case 1: Gửi 1 log đơn lẻ
     if isinstance(body, dict):
-        # Nếu có _source (kiểu Elastic cũ) -> bóc ra
         if "_source" in body:
             raw_data = body["_source"]
         else:
-            raw_data = body # Đã là log sạch hoặc log archive
-        
+            raw_data = body
         logs_to_process.append(raw_data)
         
-    # Case 2: Gửi 1 list log (Batch processing)
+    # Case 2: Gửi 1 list log
     elif isinstance(body, list):
         for item in body:
             if "_source" in item:
@@ -40,37 +37,39 @@ async def predict(request: Request):
     processed = []
 
     for log_entry in logs_to_process:
-        # --- BƯỚC 2: TÌM DỮ LIỆU CỐT LÕI (Suricata Data) ---
-        
-        # Ưu tiên 1: Dữ liệu nằm trong key 'data' (Log Archive gốc)
+        # --- BƯỚC 2: TÌM DỮ LIỆU CỐT LÕI ---
         if "data" in log_entry and isinstance(log_entry["data"], dict):
             core_data = log_entry["data"]
-            # Đôi khi trong data lại có full_log dạng string, nếu cần thì parse, 
-            # nhưng thường data đã đủ các trường rồi.
-        
-        # Ưu tiên 2: Log đã được bóc tách (Script Forwarder gửi cái này)
         elif "event_type" in log_entry:
             core_data = log_entry
-            
-        # Ưu tiên 3: Parse từ full_log string (Kiểu cũ của bạn)
         elif "full_log" in log_entry and isinstance(log_entry["full_log"], str):
             try:
                 core_data = json.loads(log_entry["full_log"])
             except:
                 continue
         else:
-            continue # Không hiểu format này
+            continue
 
-        # --- BƯỚC 3: LỌC VÀ DỰ ĐOÁN ---
+        # --- BƯỚC 2.5 (MỚI): LỌC BỎ IPV6 (Cách đơn giản) ---
+        src_ip = core_data.get("src_ip")
+        dest_ip = core_data.get("dest_ip")
+
+        # IPv6 luôn chứa dấu hai chấm (:), IPv4 thì không.
+        # Ta check luôn bằng string method cho nhanh, không cần try/except phức tạp.
+        if src_ip and isinstance(src_ip, str) and ":" in src_ip:
+            continue
+            
+        if dest_ip and isinstance(dest_ip, str) and ":" in dest_ip:
+            continue
+
+        # --- BƯỚC 3: LỌC EVENT TYPE VÀ DỰ ĐOÁN ---
         event_type = core_data.get("event_type")
         
         if event_type not in ["flow", "dns"]:
             continue
 
-        # Model của bạn cần dict, core_data giờ chắc chắn là dict
         try:
             if event_type == "flow":
-                # Lưu ý: Đảm bảo core_data có đủ field mà model cần (flow_id, dest_ip...)
                 result = predict_flow(core_data) 
             else:
                 result = predict_dns(core_data)
@@ -83,8 +82,8 @@ async def predict(request: Request):
             minimal = {
                 "timestamp": core_data.get("timestamp"),
                 "app_name": "ai_ids",
-                "src_ip": core_data.get("src_ip"),
-                "dest_ip": core_data.get("dest_ip"),
+                "src_ip": src_ip,   # Dùng biến đã get ở trên
+                "dest_ip": dest_ip, # Dùng biến đã get ở trên
                 "suri_flow_id": core_data.get("flow_id"),
                 "log_category": event_type,
                 "ai_score": result["final_score"],
@@ -92,11 +91,9 @@ async def predict(request: Request):
                 "alert_type": result.get("alert_type", "unknown"),
             }
             
-            # Ghi file (Append mode)
             with open(RESULT_FILE, "a") as f:
                 f.write(json.dumps(minimal) + "\n")
 
-        # Response API
         processed.append({
             "flow_id": core_data.get("flow_id"),
             "type": event_type,
@@ -105,6 +102,6 @@ async def predict(request: Request):
         })
 
     if not processed:
-        return {"status": "ignored", "reason": "no valid flow/dns events found"}
+        return {"status": "ignored", "reason": "no valid ipv4 flow/dns events found"}
 
     return {"status": "processed", "count": len(processed), "results": processed}
